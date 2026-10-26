@@ -1,0 +1,29 @@
+[
+    {
+        "lead_id": "LEAD001",
+        "name": "Priya Sharma",
+        "phone": "9876501234",
+        "email": "priya@example.com",
+        "source": "Website",
+        "status": "Interested",
+        "created_at": "2026-10-25 17:14"
+    },
+    {
+        "lead_id": "LEAD002",
+        "name": "Priya Sharma",
+        "phone": "9876501234",
+        "email": "priya@example.com",
+        "source": "Website",
+        "status": "Interested",
+        "created_at": "2026-10-25 17:18"
+    },
+    {
+        "lead_id": "LEAD003",
+        "name": "kiran kumar",
+        "phone": "9849046116",
+        "email": "kiran@example.com",
+        "source": "Website",
+        "status": "Interested",
+        "created_at": "2026-10-25 17:39"
+    }
+]

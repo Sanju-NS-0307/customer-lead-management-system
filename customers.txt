@@ -1,0 +1,23 @@
+[
+    {
+        "customer_id": "CUST001",
+        "name": "Rahul Kumar",
+        "phone": "9876543210",
+        "email": "rahul@example.com",
+        "category": "Regular"
+    },
+    {
+        "customer_id": "CUST002",
+        "name": "Rahul Kumar",
+        "phone": "9876543210",
+        "email": "rahul@example.com",
+        "category": "Regular"
+    },
+    {
+        "customer_id": "CUST003",
+        "name": "Arjun Reddy",
+        "phone": "7396804103",
+        "email": "arjun@example.com",
+        "category": "Regular"
+    }
+]
