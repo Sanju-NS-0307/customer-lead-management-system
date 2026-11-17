@@ -1,73 +1,52 @@
+"""Customer and Lead Management System with local TSV text storage."""
 
-"""
-Customer and Lead Management System
-Core Python backend with TXT file persistence.
-"""
-
-import json
+import csv
 import os
+from datetime import date, datetime
 from pathlib import Path
 import tempfile
-from datetime import date, datetime, timedelta
+
+
+STATUSES = ("New", "Contacted", "Interested", "Converted", "Lost")
+INTERACTION_TYPES = ("Call", "Email", "Meeting", "Other")
+SEGMENTS = ("Regular", "Premium", "Business")
+FIELDS = (
+    "type", "id", "related_id", "name", "phone", "email", "category",
+    "source", "status", "created_at", "date", "interaction_type",
+    "description", "completed",
+)
 
 
 class Customer:
-    """Stores information about a registered customer."""
+    """Store one customer and its notes and follow-up reminders."""
 
-    def __init__(
-        self,
-        customer_id,
-        name,
-        phone,
-        email,
-        category="Regular",
-        source_lead_id=None,
-    ):
+    def __init__(self, customer_id, name, phone, email, category="Regular",
+                 source_lead_id=None):
         self.customer_id = customer_id
         self.name = name.strip()
         self.phone = phone.strip()
         self.email = email.strip()
         self.category = category
         self.source_lead_id = source_lead_id
+        self.notes = []
+        self.follow_ups = []
 
     def display_details(self):
-        return (
-            f"Customer ID: {self.customer_id}\n"
-            f"Name: {self.name}\n"
-            f"Phone: {self.phone}\n"
-            f"Email: {self.email}\n"
-            f"Category: {self.category}"
-        )
+        return (f"Customer ID: {self.customer_id}\nName: {self.name}\n"
+                f"Phone: {self.phone}\nEmail: {self.email}\n"
+                f"Category: {self.category}")
 
 
 class Lead:
-    """Stores information about a potential customer."""
+    """Store one potential customer and its activity history."""
 
-    VALID_INTERACTION_TYPES = ["Call", "Email", "Meeting", "Other"]
+    VALID_STATUSES = list(STATUSES)
+    VALID_INTERACTION_TYPES = list(INTERACTION_TYPES)
 
-    VALID_STATUSES = [
-        "New",
-        "Contacted",
-        "Interested",
-        "Converted",
-        "Lost",
-    ]
-
-    def __init__(
-        self,
-        lead_id,
-        name,
-        phone,
-        email,
-        source,
-        status="New",
-        notes=None,
-        follow_up_date=None,
-        converted_customer_id=None,
-    ):
-        if status not in self.VALID_STATUSES:
-            raise ValueError("Invalid lead status.")
-
+    def __init__(self, lead_id, name, phone, email, source, status="New",
+                 notes=None, follow_up_date=None, converted_customer_id=None):
+        if status not in STATUSES:
+            raise ValueError("Choose a valid lead status.")
         self.lead_id = lead_id
         self.name = name.strip()
         self.phone = phone.strip()
@@ -75,613 +54,499 @@ class Lead:
         self.source = source.strip()
         self.status = status
         self.created_at = datetime.now().strftime("%Y-%m-%d %H:%M")
-        self.notes = notes if notes is not None else []
-        self.follow_up_date = self.normalize_follow_up_date(follow_up_date)
+        self.notes = list(notes or [])
+        self.follow_ups = []
+        # These attributes keep old in-memory callers working.
+        self.follow_up_date = follow_up_date
         self.converted_customer_id = converted_customer_id
 
-    @staticmethod
-    def normalize_follow_up_date(value):
-        """Return a strict ISO date string or None for no scheduled date."""
-        if value is None:
-            return None
-
-        if isinstance(value, datetime):
-            raise ValueError("Follow-up date must use YYYY-MM-DD.")
-
-        if isinstance(value, date):
-            return value.isoformat()
-
-        if not isinstance(value, str):
-            raise ValueError("Follow-up date must use YYYY-MM-DD.")
-
-        try:
-            parsed_date = date.fromisoformat(value)
-        except ValueError:
-            raise ValueError("Follow-up date must use YYYY-MM-DD.") from None
-
-        if parsed_date.isoformat() != value:
-            raise ValueError("Follow-up date must use YYYY-MM-DD.")
-
-        return value
-
-    def set_follow_up_date(self, value):
-        """Set or clear the lead's single scheduled follow-up date."""
-        self.follow_up_date = self.normalize_follow_up_date(value)
-
-    def add_interaction_note(self, interaction_type, description):
-        """Add a dated interaction note after validating its details."""
-        interaction_type = interaction_type.strip()
-        description = description.strip()
-
-        if interaction_type not in self.VALID_INTERACTION_TYPES:
-            raise ValueError(
-                "Invalid interaction type. Choose from: "
-                f"{', '.join(self.VALID_INTERACTION_TYPES)}"
-            )
-
-        if not description:
-            raise ValueError("Interaction description cannot be empty.")
-
-        note = {
-            "date": datetime.now().strftime("%Y-%m-%d"),
-            "interaction_type": interaction_type,
-            "description": description,
-        }
-        self.notes.append(note)
-        return note
-
-    def update_status(self, new_status):
-        """Update the lead's status after validating it."""
-        if new_status not in self.VALID_STATUSES:
-            raise ValueError(
-                f"Invalid status. Choose from: {', '.join(self.VALID_STATUSES)}"
-            )
-        if new_status == "Converted":
-            raise ValueError("Converted is a historical status and cannot be set directly.")
-        if self.converted_customer_id is not None and new_status != "Converted":
+    def update_status(self, status):
+        if status not in STATUSES:
+            raise ValueError("Choose a valid lead status.")
+        if self.status == "Converted" and status != "Converted":
             raise ValueError("A converted lead cannot change to another status.")
-
-        self.status = new_status
+        self.status = status
 
     def display_details(self):
-        return (
-            f"Lead ID: {self.lead_id}\n"
-            f"Name: {self.name}\n"
-            f"Phone: {self.phone}\n"
-            f"Email: {self.email}\n"
-            f"Source: {self.source}\n"
-            f"Status: {self.status}\n"
-            f"Created At: {self.created_at}"
-        )
+        return (f"Lead ID: {self.lead_id}\nName: {self.name}\n"
+                f"Phone: {self.phone}\nEmail: {self.email}\n"
+                f"Source: {self.source}\nStatus: {self.status}")
 
 
 class DataLoadError(ValueError):
-    """Raised when customer or lead data cannot be loaded safely."""
+    """Raised when the local data file has an invalid format or record."""
 
 
 class DataSaveError(OSError):
-    """Raised when customer or lead data cannot be saved safely."""
+    """Raised when the local data file cannot be safely saved."""
 
 
 class CustomerLeadManager:
-    """Manages customers, leads, and TXT file storage."""
+    """Manage records stored as tab-separated rows in one TXT file."""
 
     def __init__(self, data_dir=None):
+        folder = Path(data_dir) if data_dir else Path(__file__).resolve().parent
+        self.data_file = folder / "customer_lead_data.txt"
         self.customers = {}
         self.leads = {}
-
-        directory = (
-            Path(data_dir)
-            if data_dir is not None
-            else Path(__file__).resolve().parent
-        )
-        self.customers_file = str(directory / "customers.txt")
-        self.leads_file = str(directory / "leads.txt")
-
         self.load_data()
 
     @staticmethod
     def validate_contact(name, phone, email):
-        """Validate customer or lead contact information."""
-        if not name.strip():
+        if not name or not name.strip():
             raise ValueError("Name cannot be empty.")
-
-        phone = phone.strip()
+        phone = (phone or "").strip()
         if not phone.isdigit() or len(phone) != 10:
-            raise ValueError(
-                "Phone number must contain exactly 10 digits."
-            )
-
-        email = email.strip()
-        if (
-            not email
-            or "@" not in email
-            or "." not in email.rsplit("@", 1)[-1]
-        ):
+            raise ValueError("Phone number must contain exactly 10 digits.")
+        email = (email or "").strip()
+        if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
             raise ValueError("Please enter a valid email address.")
 
     @staticmethod
-    def next_id(prefix, records):
-        """Generate the next ID without reusing existing IDs."""
-        highest_number = 0
+    def _valid_date(value):
+        try:
+            return date.fromisoformat(value).isoformat() == value
+        except (TypeError, ValueError):
+            return False
 
-        for record_id in records:
-            suffix = record_id.removeprefix(prefix)
-
-            if suffix.isdigit():
-                highest_number = max(highest_number, int(suffix))
-
-        return f"{prefix}{highest_number + 1:03d}"
+    @staticmethod
+    def _next_id(prefix, records):
+        numbers = [int(key[len(prefix):]) for key in records
+                   if key.startswith(prefix) and key[len(prefix):].isdigit()]
+        return f"{prefix}{max(numbers, default=0) + 1:03d}"
 
     def load_data(self):
-        """Load both files completely before replacing the current state."""
-        customers = self._load_customers()
-        leads = self._load_leads()
-        self._validate_customer_lead_links(customers, leads)
+        """Read and validate every row before changing manager state."""
+        customers, leads = {}, {}
+        rows = []
+        if self.data_file.exists():
+            try:
+                with self.data_file.open("r", encoding="utf-8", newline="") as file:
+                    if file.read().strip():
+                        file.seek(0)
+                        reader = csv.DictReader(file, delimiter="\t")
+                        if reader.fieldnames != list(FIELDS):
+                            raise DataLoadError("The local data file has an unsupported format.")
+                        rows = list(reader)
+                    if any(None in row for row in rows):
+                        raise DataLoadError("The local data file contains an invalid row.")
+            except DataLoadError:
+                raise
+            except (OSError, UnicodeError, csv.Error):
+                raise DataLoadError("Could not read the local data file.") from None
 
-        self.customers = customers
-        self.leads = leads
-
-    def _read_records(self, file_path, record_type):
-        """Read one JSON array, treating missing and empty files as empty."""
-        if not os.path.exists(file_path):
-            return []
-
-        filename = Path(file_path).name
+        # Create all customers and leads first; activity rows can then link to either.
         try:
-            with open(file_path, "r", encoding="utf-8") as file:
-                contents = file.read()
-        except (OSError, UnicodeError):
-            raise DataLoadError(
-                f"Could not read {record_type} data file '{filename}'."
-            ) from None
+            for row in rows:
+                kind, record_id = row["type"], row["id"]
+                if kind == "customer":
+                    if not record_id or record_id in customers:
+                        raise ValueError
+                    customer = Customer(record_id, row["name"], row["phone"],
+                                        row["email"], row["category"] or "Regular",
+                                        row["related_id"] or None)
+                    self.validate_contact(customer.name, customer.phone, customer.email)
+                    if customer.category not in SEGMENTS:
+                        raise ValueError
+                    customers[record_id] = customer
+                elif kind == "lead":
+                    if not record_id or record_id in leads or row["status"] not in STATUSES:
+                        raise ValueError
+                    lead = Lead(record_id, row["name"], row["phone"], row["email"],
+                                row["source"], row["status"],
+                                converted_customer_id=row["related_id"] or None)
+                    self.validate_contact(lead.name, lead.phone, lead.email)
+                    if not lead.source:
+                        raise ValueError
+                    lead.created_at = row["created_at"]
+                    leads[record_id] = lead
+                elif kind not in ("note", "follow_up"):
+                    raise ValueError
 
-        if not contents.strip():
-            return []
+            follow_up_ids = set()
+            for row in rows:
+                kind = row["type"]
+                if kind not in ("note", "follow_up"):
+                    continue
+                owner = customers.get(row["related_id"]) or leads.get(row["related_id"])
+                if owner is None:
+                    raise ValueError
+                if kind == "note":
+                    if (row["interaction_type"] not in INTERACTION_TYPES
+                            or not row["description"] or not self._valid_date(row["date"])):
+                        raise ValueError
+                    owner.notes.append({"date": row["date"],
+                                        "interaction_type": row["interaction_type"],
+                                        "description": row["description"]})
+                else:
+                    if (not row["id"] or row["id"] in follow_up_ids
+                            or not self._valid_date(row["date"])
+                            or row["completed"] not in ("true", "false")):
+                        raise ValueError
+                    follow_up_ids.add(row["id"])
+                    owner.follow_ups.append({"follow_up_id": row["id"],
+                                             "date": row["date"],
+                                             "description": row["description"],
+                                             "completed": row["completed"] == "true"})
 
-        try:
-            records = json.loads(contents)
-        except json.JSONDecodeError:
-            raise DataLoadError(
-                f"Malformed JSON in {record_type} data file '{filename}'."
-            ) from None
+            self._check_loaded_duplicates(customers, leads)
+            self._check_conversion_links(customers, leads)
+        except (KeyError, TypeError, ValueError):
+            raise DataLoadError("The local data file contains an invalid record.") from None
 
-        if not isinstance(records, list):
-            raise DataLoadError(
-                f"Invalid {record_type} data in '{filename}': expected a JSON array."
-            )
-
-        return records
+        self.customers, self.leads = customers, leads
 
     @staticmethod
-    def _validate_string_fields(record, fields, record_type, filename, index):
-        for field in fields:
-            if field not in record:
-                raise DataLoadError(
-                    f"Invalid {record_type} record {index} in '{filename}': "
-                    f"missing required field '{field}'."
+    def _check_loaded_duplicates(customers, leads):
+        records = list(customers.values()) + list(leads.values())
+        for index, record in enumerate(records):
+            for other in records[index + 1:]:
+                same_contact = (record.phone == other.phone
+                                or record.email.casefold() == other.email.casefold())
+                if not same_contact:
+                    continue
+                customer = record if isinstance(record, Customer) else other if isinstance(other, Customer) else None
+                lead = record if isinstance(record, Lead) else other if isinstance(other, Lead) else None
+                is_conversion_pair = (
+                    customer is not None and lead is not None
+                    and customer.source_lead_id == lead.lead_id
+                    and lead.converted_customer_id == customer.customer_id
+                    and lead.status == "Converted"
                 )
-            if not isinstance(record[field], str):
-                raise DataLoadError(
-                    f"Invalid {record_type} record {index} in '{filename}': "
-                    f"field '{field}' must be text."
-                )
-
-    def _load_customers(self):
-        filename = Path(self.customers_file).name
-        records = self._read_records(self.customers_file, "customer")
-        return self._customers_from_records(records, filename)
-
-    def _customers_from_records(self, records, filename):
-        customers = {}
-        required_fields = ("customer_id", "name", "phone", "email")
-        allowed_fields = set(required_fields) | {"category", "source_lead_id"}
-
-        for index, record in enumerate(records, start=1):
-            if not isinstance(record, dict):
-                raise DataLoadError(
-                    f"Invalid customer record {index} in '{filename}': "
-                    "expected an object."
-                )
-
-            self._validate_string_fields(
-                record, required_fields, "customer", filename, index
-            )
-            if "category" in record and not isinstance(record["category"], str):
-                raise DataLoadError(
-                    f"Invalid customer record {index} in '{filename}': "
-                    "field 'category' must be text."
-                )
-            source_lead_id = record.get("source_lead_id")
-            if source_lead_id is not None and (
-                not isinstance(source_lead_id, str) or not source_lead_id.strip()
-            ):
-                raise DataLoadError(
-                    f"Invalid customer record {index} in '{filename}': "
-                    "field 'source_lead_id' must be a non-empty ID or null."
-                )
-            if set(record) - allowed_fields:
-                raise DataLoadError(
-                    f"Invalid customer record {index} in '{filename}': "
-                    "unexpected fields."
-                )
-
-            customer_id = record["customer_id"]
-            if not customer_id.strip() or customer_id in customers:
-                raise DataLoadError(
-                    f"Invalid customer record {index} in '{filename}': "
-                    "empty or duplicate ID."
-                )
-
-            customers[customer_id] = Customer(**record)
-
-        return customers
-
-    def _load_leads(self):
-        filename = Path(self.leads_file).name
-        records = self._read_records(self.leads_file, "lead")
-        return self._leads_from_records(records, filename)
-
-    def _leads_from_records(self, records, filename):
-        leads = {}
-        required_fields = (
-            "lead_id",
-            "name",
-            "phone",
-            "email",
-            "source",
-            "status",
-            "created_at",
-        )
-
-        for index, record in enumerate(records, start=1):
-            if not isinstance(record, dict):
-                raise DataLoadError(
-                    f"Invalid lead record {index} in '{filename}': "
-                    "expected an object."
-                )
-
-            self._validate_string_fields(
-                record, required_fields, "lead", filename, index
-            )
-
-            notes = record.get("notes", [])
-            if notes is None:
-                notes = []
-            if not isinstance(notes, list):
-                raise DataLoadError(
-                    f"Invalid lead record {index} in '{filename}': "
-                    "field 'notes' must be an array."
-                )
-            for note_index, note in enumerate(notes, start=1):
-                if not isinstance(note, dict) or any(
-                    not isinstance(note.get(field), str)
-                    for field in ("date", "interaction_type", "description")
-                ):
-                    raise DataLoadError(
-                        f"Invalid note {note_index} in lead record {index} "
-                        f"in '{filename}'."
-                    )
-
-            lead_id = record["lead_id"]
-            if not lead_id.strip() or lead_id in leads:
-                raise DataLoadError(
-                    f"Invalid lead record {index} in '{filename}': "
-                    "empty or duplicate ID."
-                )
-
-            converted_customer_id = record.get("converted_customer_id")
-            if converted_customer_id is not None and (
-                not isinstance(converted_customer_id, str)
-                or not converted_customer_id.strip()
-            ):
-                raise DataLoadError(
-                    f"Invalid lead record {index} in '{filename}': "
-                    "field 'converted_customer_id' must be a non-empty ID or null."
-                )
-
-            try:
-                follow_up_date = Lead.normalize_follow_up_date(
-                    record.get("follow_up_date")
-                )
-            except ValueError:
-                raise DataLoadError(
-                    f"Invalid follow-up date in lead record {index} "
-                    f"in '{filename}'."
-                ) from None
-
-            try:
-                lead = Lead(
-                    record["lead_id"],
-                    record["name"],
-                    record["phone"],
-                    record["email"],
-                    record["source"],
-                    record["status"],
-                    notes,
-                    follow_up_date,
-                    converted_customer_id,
-                )
-            except ValueError:
-                raise DataLoadError(
-                    f"Invalid status in lead record {index} in '{filename}'."
-                ) from None
-            lead.created_at = record["created_at"]
-            leads[lead_id] = lead
-
-        return leads
+                if not is_conversion_pair:
+                    raise DataLoadError("The local data file contains duplicate contacts.")
 
     @staticmethod
-    def _validate_customer_lead_links(customers, leads):
-        """Validate optional links stored in older converted records."""
-        linked_lead_ids = set()
-        for customer in customers.values():
-            lead_id = customer.source_lead_id
-            if lead_id is None:
-                continue
-            if lead_id in linked_lead_ids:
-                raise DataLoadError(
-                    "Multiple customers reference the same source lead."
-                )
-            linked_lead_ids.add(lead_id)
-            lead = leads.get(lead_id)
-            if (
-                lead is None
-                or lead.status != "Converted"
-                or lead.converted_customer_id != customer.customer_id
-            ):
-                raise DataLoadError(
-                    "Customer and lead legacy links do not match."
-                )
-
+    def _check_conversion_links(customers, leads):
         for lead in leads.values():
-            customer_id = lead.converted_customer_id
-            if customer_id is None:
-                continue
-            customer = customers.get(customer_id)
-            if (
-                lead.status != "Converted"
-                or customer is None
-                or customer.source_lead_id != lead.lead_id
-            ):
-                raise DataLoadError(
-                    "Lead and customer legacy links do not match."
-                )
+            if lead.converted_customer_id:
+                customer = customers.get(lead.converted_customer_id)
+                if (lead.status != "Converted" or customer is None
+                        or customer.source_lead_id != lead.lead_id):
+                    raise DataLoadError("Converted customer and lead links do not match.")
+        for customer in customers.values():
+            if customer.source_lead_id:
+                lead = leads.get(customer.source_lead_id)
+                if lead is None or lead.converted_customer_id != customer.customer_id:
+                    raise DataLoadError("Converted customer and lead links do not match.")
+
+    def _rows(self):
+        rows = []
+        for customer in self.customers.values():
+            rows.append(self._row(type="customer", id=customer.customer_id,
+                                  related_id=customer.source_lead_id or "",
+                                  name=customer.name, phone=customer.phone,
+                                  email=customer.email, category=customer.category))
+        for lead in self.leads.values():
+            rows.append(self._row(type="lead", id=lead.lead_id,
+                                  related_id=lead.converted_customer_id or "",
+                                  name=lead.name, phone=lead.phone, email=lead.email,
+                                  source=lead.source, status=lead.status,
+                                  created_at=lead.created_at))
+        for owner in list(self.customers.values()) + list(self.leads.values()):
+            owner_id = getattr(owner, "customer_id", getattr(owner, "lead_id", ""))
+            for note in owner.notes:
+                rows.append(self._row(type="note", id="NOTE", related_id=owner_id,
+                                      date=note["date"],
+                                      interaction_type=note["interaction_type"],
+                                      description=note["description"]))
+            for item in owner.follow_ups:
+                rows.append(self._row(type="follow_up", id=item["follow_up_id"],
+                                      related_id=owner_id, date=item["date"],
+                                      description=item["description"],
+                                      completed=str(item["completed"]).lower()))
+        return rows
 
     @staticmethod
-    def _customer_records(customers):
-        return [
-            {
-                "customer_id": customer.customer_id,
-                "name": customer.name,
-                "phone": customer.phone,
-                "email": customer.email,
-                "category": customer.category,
-                "source_lead_id": customer.source_lead_id,
-            }
-            for customer in customers.values()
-        ]
+    def _row(**values):
+        row = dict.fromkeys(FIELDS, "")
+        row.update(values)
+        return row
 
-    @staticmethod
-    def _lead_records(leads):
-        return [
-            {
-                "lead_id": lead.lead_id,
-                "name": lead.name,
-                "phone": lead.phone,
-                "email": lead.email,
-                "source": lead.source,
-                "status": lead.status,
-                "created_at": lead.created_at,
-                "notes": lead.notes,
-                "follow_up_date": lead.follow_up_date,
-                "converted_customer_id": lead.converted_customer_id,
-            }
-            for lead in leads.values()
-        ]
-
-    @staticmethod
-    def _atomic_write_json(file_path, records):
-        """Write JSON beside the destination and atomically replace it."""
-        destination = Path(file_path)
-        temporary_path = None
+    def save_data(self):
+        """Write a complete temporary file, then replace the old file atomically."""
+        temporary = None
         try:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                dir=destination.parent,
-                prefix=f".{destination.name}.",
-                suffix=".tmp",
-                delete=False,
-            ) as file:
-                temporary_path = file.name
-                json.dump(records, file, indent=4)
+            self.data_file.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", newline="",
+                    dir=self.data_file.parent, prefix=".crm-", suffix=".tmp",
+                    delete=False) as file:
+                temporary = file.name
+                writer = csv.DictWriter(file, fieldnames=FIELDS, delimiter="\t",
+                                        lineterminator="\n")
+                writer.writeheader()
+                writer.writerows(self._rows())
                 file.flush()
                 os.fsync(file.fileno())
-
-            os.replace(temporary_path, destination)
-            temporary_path = None
+            os.replace(temporary, self.data_file)
+            temporary = None
         except Exception:
-            raise DataSaveError(
-                f"Could not safely save data file '{destination.name}'."
-            ) from None
+            raise DataSaveError("Could not safely save the local data file.") from None
         finally:
-            if temporary_path is not None:
-                try:
-                    os.unlink(temporary_path)
-                except FileNotFoundError:
-                    pass
+            if temporary and os.path.exists(temporary):
+                os.unlink(temporary)
 
-    def save_customers(self):
-        """Save all customers to a TXT file."""
-        self._atomic_write_json(
-            self.customers_file, self._customer_records(self.customers)
-        )
+    def _save_or_rollback(self, rollback):
+        try:
+            self.save_data()
+        except Exception:
+            rollback()
+            raise
 
-    def save_leads(self):
-        """Save all leads to a TXT file."""
-        self._atomic_write_json(self.leads_file, self._lead_records(self.leads))
+    def _check_duplicate_contact(self, phone, email, skip_id=None):
+        for record in list(self.customers.values()) + list(self.leads.values()):
+            record_id = getattr(record, "customer_id", getattr(record, "lead_id", None))
+            if record_id != skip_id and (record.phone == phone.strip()
+                    or record.email.casefold() == email.strip().casefold()):
+                if (skip_id is not None and (
+                        isinstance(record, Lead) and record.converted_customer_id == skip_id
+                        or isinstance(record, Customer) and record.source_lead_id == skip_id)):
+                    continue
+                raise ValueError("A customer or lead already uses that phone or email.")
 
     def add_customer(self, name, phone, email, category="Regular"):
-        """Validate and register a customer."""
         self.validate_contact(name, phone, email)
+        if category not in SEGMENTS:
+            raise ValueError("Choose a valid customer segment.")
+        self._check_duplicate_contact(phone, email)
+        record = Customer(self._next_id("CUST", self.customers), name, phone, email, category)
+        self.customers[record.customer_id] = record
+        self._save_or_rollback(lambda: self.customers.pop(record.customer_id, None))
+        return record
 
-        customer_id = self.next_id("CUST", self.customers)
-
-        customer = Customer(
-            customer_id, name, phone, email, category
-        )
-        self.customers[customer_id] = customer
-        try:
-            self.save_customers()
-        except Exception:
-            del self.customers[customer_id]
-            raise
-
-        return customer
-
-    def add_lead(self, name, phone, email, source):
-        """Validate and register a lead."""
+    def edit_customer(self, customer_id, name, phone, email, category):
+        record = self.customers.get(customer_id)
+        if record is None:
+            raise ValueError("Customer ID not found.")
         self.validate_contact(name, phone, email)
-
-        if not source.strip():
-            raise ValueError("Lead source cannot be empty.")
-
-        lead_id = self.next_id("LEAD", self.leads)
-
-        lead = Lead(lead_id, name, phone, email, source)
-        self.leads[lead_id] = lead
-        try:
-            self.save_leads()
-        except Exception:
-            del self.leads[lead_id]
-            raise
-
-        return lead
-
-    def update_lead_status(self, lead_id, new_status):
-        """Update a lead and persist the change."""
-        if lead_id not in self.leads:
-            raise ValueError("Lead ID not found.")
-
-        lead = self.leads[lead_id]
-        previous_status = lead.status
-        lead.update_status(new_status)
-        try:
-            self.save_leads()
-        except Exception:
-            lead.status = previous_status
-            raise
-
-        return lead
-
-    def add_interaction_note(self, lead_id, interaction_type, description):
-        """Add a note to an existing lead and save it."""
-        if lead_id not in self.leads:
-            raise ValueError("Lead ID not found.")
-
-        note = self.leads[lead_id].add_interaction_note(
-            interaction_type, description
-        )
-        try:
-            self.save_leads()
-        except Exception:
-            self.leads[lead_id].notes.pop()
-            raise
-
-        return note
-
-    def set_lead_follow_up(self, lead_id, follow_up_date):
-        """Set or clear a lead's follow-up date and persist the change."""
-        if lead_id not in self.leads:
-            raise ValueError("Lead ID not found.")
-
-        lead = self.leads[lead_id]
-        previous_follow_up_date = lead.follow_up_date
-        lead.set_follow_up_date(follow_up_date)
-        try:
-            self.save_leads()
-        except Exception:
-            lead.follow_up_date = previous_follow_up_date
-            raise
-
-        return lead
+        if category not in SEGMENTS:
+            raise ValueError("Choose a valid customer segment.")
+        self._check_duplicate_contact(phone, email, customer_id)
+        old = record.name, record.phone, record.email, record.category
+        record.name, record.phone, record.email, record.category = (
+            name.strip(), phone.strip(), email.strip(), category)
+        self._save_or_rollback(lambda: self._restore_customer(record, old))
+        return record
 
     @staticmethod
-    def _summary_date(today):
-        if today is None:
-            return date.today()
-        if not isinstance(today, date) or isinstance(today, datetime):
+    def _restore_customer(record, values):
+        record.name, record.phone, record.email, record.category = values
+
+    def delete_customer(self, customer_id):
+        record = self.customers.get(customer_id)
+        if record is None:
+            raise ValueError("Customer ID not found.")
+        if record.source_lead_id:
+            raise ValueError("A customer linked to a converted lead cannot be deleted.")
+        del self.customers[customer_id]
+        self._save_or_rollback(lambda: self.customers.__setitem__(customer_id, record))
+
+    def add_lead(self, name, phone, email, source):
+        self.validate_contact(name, phone, email)
+        if not source or not source.strip():
+            raise ValueError("Lead source cannot be empty.")
+        self._check_duplicate_contact(phone, email)
+        record = Lead(self._next_id("LEAD", self.leads), name, phone, email, source)
+        self.leads[record.lead_id] = record
+        self._save_or_rollback(lambda: self.leads.pop(record.lead_id, None))
+        return record
+
+    def edit_lead(self, lead_id, name, phone, email, source):
+        record = self.leads.get(lead_id)
+        if record is None:
+            raise ValueError("Lead ID not found.")
+        if record.status == "Converted":
+            raise ValueError("A converted lead cannot be edited.")
+        self.validate_contact(name, phone, email)
+        if not source or not source.strip():
+            raise ValueError("Lead source cannot be empty.")
+        self._check_duplicate_contact(phone, email, lead_id)
+        old = record.name, record.phone, record.email, record.source
+        record.name, record.phone, record.email, record.source = (
+            name.strip(), phone.strip(), email.strip(), source.strip())
+        self._save_or_rollback(lambda: self._restore_lead(record, old))
+        return record
+
+    @staticmethod
+    def _restore_lead(record, values):
+        record.name, record.phone, record.email, record.source = values
+
+    def delete_lead(self, lead_id):
+        record = self.leads.get(lead_id)
+        if record is None:
+            raise ValueError("Lead ID not found.")
+        if record.status == "Converted":
+            raise ValueError("A converted lead cannot be deleted.")
+        del self.leads[lead_id]
+        self._save_or_rollback(lambda: self.leads.__setitem__(lead_id, record))
+
+    def update_lead_status(self, lead_id, status):
+        record = self.leads.get(lead_id)
+        if record is None:
+            raise ValueError("Lead ID not found.")
+        if status == "Converted":
+            raise ValueError("Use lead conversion to set Converted status.")
+        old = record.status
+        record.update_status(status)
+        self._save_or_rollback(lambda: setattr(record, "status", old))
+        return record
+
+    def convert_lead(self, lead_id, category="Regular"):
+        lead = self.leads.get(lead_id)
+        if lead is None:
+            raise ValueError("Lead ID not found.")
+        if lead.status not in ("New", "Contacted", "Interested"):
+            raise ValueError("Only active leads can be converted.")
+        if category not in SEGMENTS:
+            raise ValueError("Choose a valid customer segment.")
+        customer = Customer(self._next_id("CUST", self.customers), lead.name,
+                            lead.phone, lead.email, category, lead_id)
+        old_status, old_link = lead.status, lead.converted_customer_id
+        self.customers[customer.customer_id] = customer
+        lead.status, lead.converted_customer_id = "Converted", customer.customer_id
+
+        def rollback():
+            self.customers.pop(customer.customer_id, None)
+            lead.status, lead.converted_customer_id = old_status, old_link
+
+        self._save_or_rollback(rollback)
+        return customer
+
+    def search_customers(self, search_term="", category="All segments"):
+        term = (search_term or "").strip().casefold()
+        return [record for record in self.customers.values()
+                if (category == "All segments" or record.category == category)
+                and (not term or any(term in value.casefold() for value in
+                     (record.customer_id, record.name, record.phone, record.email)))]
+
+    def search_leads(self, search_term="", status="All statuses", source="All sources"):
+        term = (search_term or "").strip().casefold()
+        return [record for record in self.leads.values()
+                if (status == "All statuses" or record.status == status)
+                and (source == "All sources" or record.source == source)
+                and (not term or any(term in value.casefold() for value in
+                     (record.lead_id, record.name, record.phone, record.email, record.source)))]
+
+    def add_interaction_note(self, record_type, record_id, interaction_type, description):
+        collection = self.customers if record_type == "customer" else self.leads if record_type == "lead" else None
+        if collection is None or record_id not in collection:
+            raise ValueError("Customer or lead ID not found.")
+        if interaction_type not in INTERACTION_TYPES:
+            raise ValueError("Choose a valid interaction type.")
+        if not description or not description.strip():
+            raise ValueError("Interaction description cannot be empty.")
+        owner = collection[record_id]
+        note = {"date": date.today().isoformat(), "interaction_type": interaction_type,
+                "description": description.strip()}
+        owner.notes.append(note)
+        self._save_or_rollback(lambda: owner.notes.pop())
+        return note
+
+    def add_follow_up(self, record_type, record_id, due_date, description):
+        collection = self.customers if record_type == "customer" else self.leads if record_type == "lead" else None
+        if collection is None or record_id not in collection:
+            raise ValueError("Customer or lead ID not found.")
+        if not self._valid_date(due_date):
+            raise ValueError("Follow-up date must use YYYY-MM-DD.")
+        if not description or not description.strip():
+            raise ValueError("Follow-up description cannot be empty.")
+        owner = collection[record_id]
+        all_items = [item for entity in list(self.customers.values()) + list(self.leads.values())
+                     for item in entity.follow_ups]
+        item = {"follow_up_id": self._next_id("FUP", {entry["follow_up_id"]: entry for entry in all_items}),
+                "date": due_date, "description": description.strip(), "completed": False}
+        owner.follow_ups.append(item)
+        self._save_or_rollback(lambda: owner.follow_ups.pop())
+        return item
+
+    def _find_follow_up(self, follow_up_id):
+        for owner in list(self.customers.values()) + list(self.leads.values()):
+            for item in owner.follow_ups:
+                if item["follow_up_id"] == follow_up_id:
+                    return owner, item
+        raise ValueError("Follow-up ID not found.")
+
+    def update_follow_up(self, follow_up_id, due_date, description):
+        if not self._valid_date(due_date):
+            raise ValueError("Follow-up date must use YYYY-MM-DD.")
+        if not description or not description.strip():
+            raise ValueError("Follow-up description cannot be empty.")
+        _, item = self._find_follow_up(follow_up_id)
+        old = item["date"], item["description"]
+        item["date"], item["description"] = due_date, description.strip()
+        self._save_or_rollback(lambda: self._restore_follow_up(item, old))
+        return item
+
+    @staticmethod
+    def _restore_follow_up(item, values):
+        item["date"], item["description"] = values
+
+    def complete_follow_up(self, follow_up_id, completed=True):
+        _, item = self._find_follow_up(follow_up_id)
+        old = item["completed"]
+        item["completed"] = bool(completed)
+        self._save_or_rollback(lambda: item.__setitem__("completed", old))
+        return item
+
+    def delete_follow_up(self, follow_up_id):
+        owner, item = self._find_follow_up(follow_up_id)
+        index = owner.follow_ups.index(item)
+        owner.follow_ups.pop(index)
+        self._save_or_rollback(lambda: owner.follow_ups.insert(index, item))
+
+    def get_follow_up_summary(self, today=None):
+        current = today or date.today()
+        if not isinstance(current, date) or isinstance(current, datetime):
             raise ValueError("Summary date must be a date object.")
-        return today
+        summary = {name: [] for name in ("overdue", "today", "upcoming", "completed")}
+        for owner_type, collection in (("customer", self.customers), ("lead", self.leads)):
+            for owner in collection.values():
+                owner_id = getattr(owner, "customer_id", getattr(owner, "lead_id", ""))
+                for item in owner.follow_ups:
+                    entry = dict(item, owner_type=owner_type, owner_id=owner_id,
+                                 name=owner.name, status=getattr(owner, "status", "Customer"))
+                    if item["completed"]:
+                        group = "completed"
+                    elif date.fromisoformat(item["date"]) < current:
+                        group = "overdue"
+                    elif date.fromisoformat(item["date"]) == current:
+                        group = "today"
+                    else:
+                        group = "upcoming"
+                    summary[group].append(entry)
+        for items in summary.values():
+            items.sort(key=lambda item: (item["date"], item["owner_id"], item["follow_up_id"]))
+        return summary
+
+    # Simple helpers for older callers that used one follow-up date per lead.
+    def set_lead_follow_up(self, lead_id, due_date):
+        lead = self.leads.get(lead_id)
+        if lead is None:
+            raise ValueError("Lead ID not found.")
+        existing = next((item for item in lead.follow_ups if item["description"] == "Follow-up"), None)
+        if due_date is None:
+            if existing:
+                self.delete_follow_up(existing["follow_up_id"])
+            lead.follow_up_date = None
+            return lead
+        if not self._valid_date(due_date):
+            raise ValueError("Follow-up date must use YYYY-MM-DD.")
+        if existing:
+            self.update_follow_up(existing["follow_up_id"], due_date, "Follow-up")
+        else:
+            self.add_follow_up("lead", lead_id, due_date, "Follow-up")
+        lead.follow_up_date = due_date
+        return lead
 
     def get_upcoming_follow_ups(self, today=None, within_days=7):
-        """Return active leads due today through the configured horizon."""
-        if not isinstance(within_days, int) or isinstance(within_days, bool):
-            raise ValueError("Follow-up window must be a non-negative integer.")
-        if within_days < 0:
-            raise ValueError("Follow-up window must be a non-negative integer.")
-
-        current_date = self._summary_date(today)
-        last_upcoming_date = current_date + timedelta(days=within_days)
-        follow_ups = [
-            lead
-            for lead in self.leads.values()
-            if lead.status not in ("Converted", "Lost")
-            and lead.follow_up_date is not None
-            and current_date
-            <= date.fromisoformat(lead.follow_up_date)
-            <= last_upcoming_date
-        ]
-        return sorted(
-            follow_ups,
-            key=lambda lead: (lead.follow_up_date, lead.lead_id),
-        )
+        current = today or date.today()
+        end = date.fromordinal(current.toordinal() + within_days)
+        return [item for item in self.get_follow_up_summary(current)["today"]
+                + self.get_follow_up_summary(current)["upcoming"]
+                if date.fromisoformat(item["date"]) <= end]
 
     def get_overdue_follow_ups(self, today=None):
-        """Return active leads with follow-up dates earlier than today."""
-        current_date = self._summary_date(today)
-        follow_ups = [
-            lead
-            for lead in self.leads.values()
-            if lead.status not in ("Converted", "Lost")
-            and lead.follow_up_date is not None
-            and date.fromisoformat(lead.follow_up_date) < current_date
-        ]
-        return sorted(
-            follow_ups,
-            key=lambda lead: (lead.follow_up_date, lead.lead_id),
-        )
-
-    def search_customers(self, search_term):
-        """Search customers by ID, name, or phone."""
-        term = search_term.strip().lower()
-
-        if not term:
-            return []
-
-        return [
-            customer
-            for customer in self.customers.values()
-            if term in customer.customer_id.lower()
-            or term in customer.name.lower()
-            or term in customer.phone
-        ]
-
-    def search_leads(self, search_term):
-        """Search leads by ID, name, or phone."""
-        term = search_term.strip().lower()
-
-        if not term:
-            return []
-
-        return [
-            lead
-            for lead in self.leads.values()
-            if term in lead.lead_id.lower()
-            or term in lead.name.lower()
-            or term in lead.phone
-        ]
+        return self.get_follow_up_summary(today)["overdue"]
 
 
 if __name__ == "__main__":

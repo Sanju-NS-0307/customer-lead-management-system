@@ -25,6 +25,7 @@ Thumbs.db
 .coverage
 htmlcov/
 # Local customer and lead records
+customer_lead_data.txt
 customers.txt
 leads.txt
 .conversion-txn/

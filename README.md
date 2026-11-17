@@ -1,72 +1,73 @@
 # Customer and Lead Management System
 
-## About the Project
+## About the project
 
-A small Python and Streamlit application for organizing customer and lead records. It is designed as a practical project for learning Python classes, validation, file handling, and user interfaces.
+A small Python and Streamlit project for keeping customer and potential-customer information organized. It demonstrates object-oriented programming, validation, collections, exceptions, and local text-file storage.
 
 ## Features
 
-- Register and search customers.
-- Register leads and update their status.
-- Record interaction notes and schedule follow-ups.
-- View upcoming and overdue follow-ups.
-- View customer totals and lead counts by status.
+- Add, view, search, edit, segment, and delete customer records.
+- Add, search, filter, edit, and delete leads; update lead status.
+- Record dated interaction notes for customers and leads.
+- Add, update, complete, reopen, and delete follow-up reminders.
+- See overdue, due today, upcoming, and completed follow-ups.
+- Convert an eligible lead into a customer while keeping the lead and linking both records.
+- View customer and lead totals and counts for each lead status.
 
-## Technologies Used
+## Technologies
 
-- Python 3.11 or newer
-- Streamlit 1.66.1
-- JSON-formatted TXT files for local storage
-- Python `unittest` for automated tests
+- Python 3.11 or newer (verified with Python 3.12.9).
+- Streamlit 1.66.1.
+- Python `csv` module for tab-separated text storage.
+- Python `unittest` and Streamlit AppTest for automated tests.
 
-Python 3.12.9 is the version verified in the current environment. Python 3.11+ is documented based on the installed Streamlit requirement; other versions have not been verified.
-
-## Project Structure
+## Project files
 
 ```text
-.
-├── customer_lead.py
-├── customer_lead_system.py
-├── requirements.txt
-├── README.md
-└── tests/
-    ├── test_customer_lead.py
-    └── test_customer_lead_system.py
+customer_lead.py                 # Classes, validation, and local data storage
+customer_lead_system.py          # Four-page Streamlit application
+customer_lead_data.txt           # Created locally when the first record is saved
+requirements.txt                 # Application dependency
+tests/test_customer_lead.py      # Backend tests
+tests/test_customer_lead_system.py  # Streamlit AppTests
 ```
 
-The application creates `customers.txt` and `leads.txt` beside `customer_lead.py` when records are saved. These files are local private data and must not be committed to GitHub.
+## Run the application
 
-## How to Run
-
-Open PowerShell in the project folder. Create an environment and install the requirements:
+Open PowerShell in the project folder:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-```
-
-Start the application:
-
-```powershell
 .\.venv\Scripts\python.exe -m streamlit run customer_lead_system.py
 ```
 
-Run the automated tests:
+The application has four pages: Dashboard, Customers, Leads, and Follow-ups & Notes.
+
+## Run the tests
 
 ```powershell
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ```
 
-## Python Concepts Used
+Tests use temporary folders and synthetic records. They do not use the local application data file.
 
-- Classes and objects
-- Methods and constructors
-- Lists and dictionaries
-- Input validation and exceptions
-- JSON and file handling
-- Modules and automated tests
+## Data storage and privacy
 
-## Data Storage
+The application stores customer and lead records, notes, and follow-ups in `customer_lead_data.txt` beside the Python files. It is a tab-separated text file. Fields are quoted when needed, so descriptions can contain punctuation and tabs safely. The application writes a complete temporary file and atomically replaces the previous file after a successful save. Conversion updates the lead and adds its linked customer in the same file replacement.
 
-Customer and lead records are stored locally as JSON in `customers.txt` and `leads.txt`. Keep both files private and outside public repositories. Back them up by copying them to a protected folder outside the project, then compare SHA256 hashes of each source file and its backup before relying on the copy.
+This file contains private information. Keep it local, do not commit it to a public repository, and back it up to a protected folder outside the project. To back it up, close the application, copy the file to the protected location, then compare SHA256 hashes of the original and the backup before relying on the copy. Protect access to both copies.
 
+This version uses a new tab-separated format. It does not automatically import JSON records from older `customers.txt` or `leads.txt` files. Keep those original files and a verified backup until you have separately reviewed and completed any needed data migration. The application does not delete or overwrite those legacy files.
+
+## Follow-up workflow
+
+Choose a customer or lead on Follow-ups & Notes, add a due date and description, and save the reminder. The page groups open reminders as overdue, due today, or upcoming. You can edit a reminder, mark it complete, reopen it, or delete it. Completed reminders remain available in their own summary.
+
+## Lead conversion
+
+Convert a lead in the Leads page when its status is New, Contacted, or Interested. The application creates a customer with the lead's contact details, changes the lead status to Converted, and stores matching references in both records. The original lead and its notes and follow-ups remain. Since all records are saved in one text file with one atomic replacement, conversion does not depend on two separate file writes or a recovery journal.
+
+## Python concepts used
+
+The project uses classes and objects, constructors, methods, dictionaries and lists, loops, conditional statements, input validation, exception handling, modules, and file handling with the `csv` module.
