@@ -1,0 +1,36 @@
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets and environment variables
+.env
+.env.*
+!.env.example
+
+# Editors and operating system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Test and coverage output
+.pytest_cache/
+.coverage
+htmlcov/
+# Local customer and lead records
+customers.txt
+leads.txt
+.conversion-txn/
+
+# Additional local virtual environment
+.venv-1/
+
+# Generated PowerShell cache
+Microsoft/Windows/PowerShell/ModuleAnalysisCache
